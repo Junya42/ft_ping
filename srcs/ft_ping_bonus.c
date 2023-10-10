@@ -10,6 +10,9 @@
 #include <errno.h>
 #include <limits.h>
 #include <math.h>
+#include <netinet/in.h>
+#include <sys/ioctl.h>
+#include <net/if.h>
 
 #define PACKET_SIZE 64
 
@@ -243,7 +246,7 @@ void check_options(struct option *opt, char **av) {
 	if (opt->f && i_check == 0) {
 		opt->i = 0;
 	}
-	printf("opt->f: %d\n", opt->f);
+	/*printf("opt->f: %d\n", opt->f);
 	printf("opt->i: %f\n", opt->i);
 	printf("opt->l: %d\n", opt->l);
 	printf("opt->n: %d\n", opt->n);
@@ -256,7 +259,7 @@ void check_options(struct option *opt, char **av) {
 	printf("opt->w: %d\n", opt->w);
 	printf("opt->W: %f\n", opt->W);
 	printf("opt->help: %d\n", opt->help);
-	printf("sudo = %d\n", sudo);
+	printf("sudo = %d\n", sudo);*/
 }
 
 void	help(void) {
@@ -280,6 +283,43 @@ void	help(void) {
 	printf("	-?			print help and exit\n");
 	exit(0);
 }
+
+uint32_t get_ip(char *iface) {
+    int fd;
+    struct ifreq ifr;
+
+    fd = socket(AF_INET, SOCK_DGRAM, 0);
+    ifr.ifr_addr.sa_family = AF_INET;
+    strncpy(ifr.ifr_name, iface, IFNAMSIZ-1);
+
+    if (ioctl(fd, SIOCGIFADDR, &ifr) == -1) {
+        perror("SIOCGIFADDR");
+        exit(EXIT_FAILURE);
+    }
+
+    close(fd);
+
+    return ((struct sockaddr_in *)&ifr.ifr_addr)->sin_addr.s_addr;
+}
+
+uint32_t get_netmask(char *iface) {
+    int fd;
+    struct ifreq ifr;
+
+    fd = socket(AF_INET, SOCK_DGRAM, 0);
+    ifr.ifr_addr.sa_family = AF_INET;
+    strncpy(ifr.ifr_name, iface, IFNAMSIZ-1);
+
+    if (ioctl(fd, SIOCGIFNETMASK, &ifr) == -1) {
+        perror("SIOCGIFNETMASK");
+        exit(EXIT_FAILURE);
+    }
+
+    close(fd);
+
+    return ((struct sockaddr_in *)&ifr.ifr_netmask)->sin_addr.s_addr;
+}
+
 
 int main(int argc, char **argv) {
     if (argc < 2) {
@@ -328,6 +368,16 @@ int main(int argc, char **argv) {
     }
 
     struct sockaddr_in *addr = (struct sockaddr_in *)res->ai_addr;
+
+	uint32_t my_ip = get_ip("eth0");
+	uint32_t my_netmask = get_netmask("eth0");
+	uint32_t target_ip = inet_addr(inet_ntoa(addr->sin_addr));
+
+	if ((my_ip & my_netmask) == (target_ip & my_netmask)) {
+        printf("The target IP is on the same network.\n");
+    } else {
+        printf("The target IP is NOT on the same network.\n");
+    }
 
     int seq = 0;
     char packet[opt.s];

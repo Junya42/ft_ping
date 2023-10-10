@@ -101,7 +101,7 @@ struct option {
 	int t; //ok i guess ?
 	int T; 
 	int v; //?
-	int w;
+	int w; //ok
 	double W; //ok
 	int help; //ok
 };
@@ -321,7 +321,7 @@ int main(int argc, char **argv) {
         perror("setsockopt() failed");
         return 1;
     }*/ //doesnt work with opt.i
-	
+
     if (getaddrinfo(target, NULL, &hints, &res) != 0) {
         perror("getaddrinfo");
         return 1;

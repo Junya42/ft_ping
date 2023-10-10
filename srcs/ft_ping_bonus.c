@@ -320,11 +320,12 @@ int main(int argc, char **argv) {
   	if (setsockopt(sockfd, IPPROTO_IP, IP_HDRINCL, &one, sizeof(one)) < 0) {
         perror("setsockopt() failed");
         return 1;
-    }
+    }*/ //doesnt work with opt.i
+	
     if (getaddrinfo(target, NULL, &hints, &res) != 0) {
         perror("getaddrinfo");
         return 1;
-    }*/ //doesnt work with opt.i
+    }
 
     struct sockaddr_in *addr = (struct sockaddr_in *)res->ai_addr;
 

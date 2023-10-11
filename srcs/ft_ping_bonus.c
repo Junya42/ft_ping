@@ -60,6 +60,7 @@ unsigned short checksum(void *b, int len) {
     return result;
 }
 
+int sockfd = -1;
 char *target = NULL;
 unsigned long transmitted = 0;
 unsigned long received = 0;
@@ -84,12 +85,13 @@ void	sighandler(int sig) {
 	printf("\n--- %s ping statistics ---\n", target);
 	printf("%lu packets transmitted, %lu received, %f%% packet loss, time %ldms\n", 
 		transmitted, received, loss,
-		(unsigned long)(total_end.tv_sec - total.tv_sec) * 1000 + (unsigned long)(total_end.tv_usec - total.tv_usec) / 1000
+		(unsigned long)((double)(total_end.tv_sec - total.tv_sec) * 1000.0 + (double)(total_end.tv_usec - total.tv_usec) / 1000.0)
 	);
 	if (l_pipe < 2)
 		printf("rtt min/avg/max/mdev = %.3f/%.3f/%.3f/%.3f ms\n", min, avg, max, mdev);
 	else
 		printf("rtt min/avg/max/mdev = %.3f/%.3f/%.3f/%.3f ms, pipe %d\n", min, avg, max, mdev, l_pipe);
+	close(sockfd);
 	exit(sig);
 }
 
@@ -101,7 +103,7 @@ struct option {
 	int p; //how ?
 	int r; //depends on OS
 	int s; //ok
-	int t; //ok i guess ?
+	int ttl; //ok i guess ?
 	int T; 
 	int v; //?
 	int w; //ok
@@ -115,7 +117,7 @@ void check_options(struct option *opt, char **av) {
 	int i_check = 0;
 	opt->i = 1;
 	opt->s = PACKET_SIZE;
-	opt->t = 64;
+	opt->ttl = 64;
 	opt->W = 10;
 	int sudo = getuid() == 0 ? 1 : 0;
     for (int i = 1; av[i]; i++) {
@@ -217,7 +219,7 @@ void check_options(struct option *opt, char **av) {
 						fprintf(stderr, "ft_ping: invalid argument: '%d': out of range: 0 <= value <= 255\n", value);
 						exit(1);
 					}
-					opt->t = value;
+					opt->ttl = value;
 					break;
 				case 'w':
 					opt->w = value;
@@ -253,7 +255,7 @@ void check_options(struct option *opt, char **av) {
 	printf("opt->p: %d\n", opt->p);
 	printf("opt->r: %d\n", opt->r);
 	printf("opt->s: %d\n", opt->s);
-	printf("opt->t: %d\n", opt->t);
+	printf("opt->ttl: %d\n", opt->ttl);
 	printf("opt->T: %d\n", opt->T);
 	printf("opt->v: %d\n", opt->v);
 	printf("opt->w: %d\n", opt->w);
@@ -286,17 +288,26 @@ void	help(void) {
 
 uint32_t get_ip(char *iface) {
     int fd;
-    struct ifreq ifr;
+    struct ifreq ifr = {0};
 
+	char ip[INET_ADDRSTRLEN];
     fd = socket(AF_INET, SOCK_DGRAM, 0);
+    if (fd < 0) {
+        perror("socket");
+        exit(EXIT_FAILURE);
+    }
+
     ifr.ifr_addr.sa_family = AF_INET;
     strncpy(ifr.ifr_name, iface, IFNAMSIZ-1);
 
     if (ioctl(fd, SIOCGIFADDR, &ifr) == -1) {
         perror("SIOCGIFADDR");
+        close(fd);
         exit(EXIT_FAILURE);
     }
+	inet_ntop(AF_INET, &((struct sockaddr_in *)&ifr.ifr_addr)->sin_addr, ip, sizeof(ip));
 
+    printf("IP address of %s: %s\n", iface, ip);
     close(fd);
 
     return ((struct sockaddr_in *)&ifr.ifr_addr)->sin_addr.s_addr;
@@ -304,17 +315,25 @@ uint32_t get_ip(char *iface) {
 
 uint32_t get_netmask(char *iface) {
     int fd;
-    struct ifreq ifr;
-
+    struct ifreq ifr = {0};
+	char ip[INET_ADDRSTRLEN];
     fd = socket(AF_INET, SOCK_DGRAM, 0);
+    if (fd < 0) {
+        perror("socket");
+        exit(EXIT_FAILURE);
+    }
+
     ifr.ifr_addr.sa_family = AF_INET;
     strncpy(ifr.ifr_name, iface, IFNAMSIZ-1);
 
     if (ioctl(fd, SIOCGIFNETMASK, &ifr) == -1) {
         perror("SIOCGIFNETMASK");
+        close(fd);
         exit(EXIT_FAILURE);
     }
+	inet_ntop(AF_INET, &((struct sockaddr_in *)&ifr.ifr_addr)->sin_addr, ip, sizeof(ip));
 
+    printf("MASK of %s: %s\n", iface, ip);
     close(fd);
 
     return ((struct sockaddr_in *)&ifr.ifr_netmask)->sin_addr.s_addr;
@@ -340,7 +359,7 @@ int main(int argc, char **argv) {
     hints.ai_socktype = SOCK_RAW;
     hints.ai_protocol = IPPROTO_ICMP;
 
-    int sockfd = socket(AF_INET, SOCK_RAW, IPPROTO_ICMP);
+    sockfd = socket(AF_INET, SOCK_RAW, IPPROTO_ICMP);
     if (sockfd < 0) {
         perror("Unable to create socket");
         return 1;
@@ -352,18 +371,19 @@ int main(int argc, char **argv) {
 
     if (setsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout)) < 0) {
         perror("setsockopt");
+		close(sockfd);
         return 1;
     }
 
-	/*int one = 1;
-
-  	if (setsockopt(sockfd, IPPROTO_IP, IP_HDRINCL, &one, sizeof(one)) < 0) {
-        perror("setsockopt() failed");
-        return 1;
-    }*/ //doesnt work with opt.i
+	if (setsockopt(sockfd, IPPROTO_IP, IP_TTL, &opt.ttl, sizeof(opt.ttl)) < 0) {
+		perror("setsockopt");
+		close(sockfd);
+		return 1;
+	}
 
     if (getaddrinfo(target, NULL, &hints, &res) != 0) {
-        perror("getaddrinfo");
+        fprintf(stderr, "ft_ping: unknown host\n");
+		close(sockfd);
         return 1;
     }
 
@@ -373,11 +393,18 @@ int main(int argc, char **argv) {
 	uint32_t my_netmask = get_netmask("eth0");
 	uint32_t target_ip = inet_addr(inet_ntoa(addr->sin_addr));
 
+	//printf("%s\n", inet_ntoa(addr->sin_addr));
+	//printf("my_ip = %u >>> target_ip = %u\n", my_ip, target_ip);
 	if ((my_ip & my_netmask) == (target_ip & my_netmask)) {
         printf("The target IP is on the same network.\n");
     } else {
         printf("The target IP is NOT on the same network.\n");
+		if (opt.r) {
+			close(sockfd);
+			return 1;
+		}
     }
+	
 
     int seq = 0;
     char packet[opt.s];
@@ -392,13 +419,16 @@ int main(int argc, char **argv) {
 	signal(SIGINT, sighandler);
     // Ping loop
 
-	printf("FT_PING %s (%s) %d(%d) bytes of data.\n", target, inet_ntoa(addr->sin_addr), opt.s - 8, opt.s + 20);
+	if (!opt.v)
+		printf("FT_PING %s (%s) %d(%d) bytes of data.\n", target, inet_ntoa(addr->sin_addr), opt.s - 8, opt.s + 20);
+	else
+		printf("FT_PING %s (%s) %d(%d) bytes of data, id 0x0%x = %i.\n", target, inet_ntoa(addr->sin_addr), opt.s - 8, opt.s + 20, getpid(), getpid());
 	while (--opt.l >= 0) {
         icmp->seq = htons(++seq);
 		icmp->checksum = 0;
         gettimeofday((struct timeval *)(packet + 8), NULL);
 		struct ipheader *ip_head = (struct ipheader *)packet;
-		ip_head->ttl = opt.t;
+		ip_head->ttl = opt.ttl;
         icmp->checksum = checksum(ip_head, sizeof(struct ipheader));
 
 		struct timeval start;
@@ -407,18 +437,31 @@ int main(int argc, char **argv) {
 		gettimeofday(&start, NULL);
         if (sendto(sockfd, packet, opt.s, 0, (struct sockaddr *)addr, sizeof(struct sockaddr)) == -1) {
             perror("sendto");
+			close(sockfd);
             return 1;
         }
 		transmitted++;
         // Receive ICMP packet
         char recv_buf[opt.s];
+		struct iovec iov[1];
+		iov[0].iov_base = recv_buf;
+		iov[0].iov_len = sizeof(recv_buf);
+
         struct sockaddr_in sender_addr;
         socklen_t sender_addr_len = sizeof(sender_addr);
-        int recv_len = recvfrom(sockfd, recv_buf, opt.s, 0, (struct sockaddr *)&sender_addr, &sender_addr_len);
+		struct msghdr msg;
+		memset(&msg, 0, sizeof(msg));
+		msg.msg_name = &sender_addr;
+		msg.msg_namelen = sender_addr_len;
+		msg.msg_iov = iov;
+		msg.msg_iovlen = 1;
+        //int recv_len = recvfrom(sockfd, recv_buf, opt.s, 0, (struct sockaddr *)&sender_addr, &sender_addr_len);
+		int recv_len = recvmsg(sockfd, &msg, 0);
 
         if (recv_len < 0) {
             printf("%d\n", errno);
             perror("recvfrom");
+			close(sockfd);
             return 1;
         }
 		gettimeofday(&end, NULL);
@@ -472,6 +515,7 @@ int main(int argc, char **argv) {
 		gettimeofday(&start, NULL);
         if (sendto(sockfd, packet, opt.s, 0, (struct sockaddr *)addr, sizeof(struct sockaddr)) == -1) {
             perror("sendto");
+			close(sockfd);
             return 1;
         }
 		if (opt.f) {
@@ -481,9 +525,19 @@ int main(int argc, char **argv) {
 		transmitted++;
         // Receive ICMP packet
         char recv_buf[opt.s];
+		struct iovec iov[1];
+		iov[0].iov_base = recv_buf;
+		iov[0].iov_len = sizeof(recv_buf);
         struct sockaddr_in sender_addr;
         socklen_t sender_addr_len = sizeof(sender_addr);
-        int recv_len = recvfrom(sockfd, recv_buf, opt.s, 0, (struct sockaddr *)&sender_addr, &sender_addr_len);
+		struct msghdr msg;
+		memset(&msg, 0, sizeof(msg));
+		msg.msg_name = &sender_addr;
+		msg.msg_namelen = sender_addr_len;
+		msg.msg_iov = iov;
+		msg.msg_iovlen = 1;
+        //int recv_len = recvfrom(sockfd, recv_buf, opt.s, 0, (struct sockaddr *)&sender_addr, &sender_addr_len);
+		int recv_len = recvmsg(sockfd, &msg, 0);
 
         if (recv_len > -1) {
            	received++;

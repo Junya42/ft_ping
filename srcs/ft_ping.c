@@ -10,36 +10,29 @@
 #include <errno.h>
 #include <limits.h>
 #include <math.h>
+#include <netinet/in.h>
+#include <netinet/ip_icmp.h>
+#include <netinet/ip.h>
+
+char *get_right_icmp_error(int type, int code);
 
 #define PACKET_SIZE 64
+#define ICMP_HDR_SIZE 8
+#define ICMP_BODY_SIZE 56
+
+
+typedef struct s_icmp
+{
+    struct icmphdr hdr;
+    char *packet;
+} t_icmp;
+
+t_icmp req;
 
 // Structure for ICMP header
-struct icmphdr {
-    unsigned char type;
-    unsigned char code;
-    unsigned short checksum;
-    unsigned short id;
-    unsigned short seq;
-};
-
-struct ipheader {
-    unsigned char  ihl:4,
-                   version:4;
-    unsigned char  tos;
-    unsigned short tot_len;
-    unsigned short id;
-    unsigned short frag_off;
-    unsigned char  ttl;
-    unsigned char  protocol;
-    unsigned short check;
-    unsigned int   saddr;
-    unsigned int   daddr;
-};
-
-
-
 // Function to calculate the checksum for ICMP header
-unsigned short checksum(void *b, int len) {
+unsigned short checksum(void *b, int len)
+{
     unsigned short *buf = b;
     unsigned int sum = 0;
     unsigned short result;
@@ -67,78 +60,124 @@ double sum_of_squares = 0;
 double mdev = 0.0;
 struct timeval total;
 
-void	sighandler(int sig) {
+void sighandler(int sig)
+{
 
-	(void)sig;
+    (void)sig;
 
-	struct timeval total_end;
+    struct timeval total_end;
 
-	gettimeofday(&total_end, NULL);
-	printf("\n--- %s ping statistics ---\n", target);
-	printf("%lu packets transmitted, %lu received, %ld%% packet loss, time %ld\n", 
-		transmitted, received, 100 - (100 * received / transmitted),
-		(unsigned long)(total_end.tv_sec - total.tv_sec) * 1000 + (unsigned long)(total_end.tv_usec - total.tv_usec) / 1000
-	);
-	printf("rtt min/avg/max/mdev = %.3f/%.3f/%.3f/%.3f ms\n", min, avg, max, mdev);
-	exit(sig);
+    gettimeofday(&total_end, NULL);
+
+    long secs_diff = total_end.tv_sec - total.tv_sec;
+    long usecs_diff = total_end.tv_usec - total.tv_usec;
+
+    if (usecs_diff < 0)
+    {
+        // Adjust for the fact that usecs_diff is negative
+        --secs_diff;
+        usecs_diff += 1000000; // Add one second in microseconds
+    }
+
+    unsigned long total_time = (unsigned long)secs_diff * 1000 + (unsigned long)usecs_diff / 1000;
+    printf("\n--- %s ping statistics ---\n", target);
+    printf("%lu packets transmitted, %lu received, %ld%% packet loss, time %ld ms\n",
+           transmitted, received, 100 - (100 * received / transmitted),
+           total_time);
+    printf("rtt min/avg/max/mdev = %.3f/%.3f/%.3f/%.3f ms\n", min, avg, max, mdev);
+
+    if (req.packet)
+        free(req.packet);
+    exit(sig);
 }
 
-struct option {
-	int v;
-	int help;
+struct option
+{
+    int v;
+    int help;
 };
 
-void check_options(struct option *opt, char **av) {
+void check_options(struct option *opt, char **av)
+{
 
-    for (int i = 1; av[i]; i++) {
+    for (int i = 1; av[i]; i++)
+    {
 
-        if (av[i][0] == '-') {
-            for (int j = 1; av[i][j]; j++) {
+        if (av[i][0] == '-')
+        {
+            for (int j = 1; av[i][j]; j++)
+            {
 
-                switch (av[i][j]) {
-                    
-					case 'v':
-						opt->v = 1;
-						break;
-                    case '?':
-						opt->help = 1;
-                        break;
-					case 'h':
-						opt->help = 1;
-						break;
-                    default:
-                        // Handle unrecognized option
-                        break;
+                switch (av[i][j])
+                {
+
+                case 'v':
+                    opt->v = 1;
+                    break;
+                case '?':
+                    opt->help = 1;
+                    break;
+                case 'h':
+                    opt->help = 1;
+                    break;
+                default:
+                    printf("ft_ping: invalid argument: '%s'\n", av[i] + j);
+                    exit(1);
+                    break;
                 }
             }
-        } else {
-			if (!target)
-				target = av[i];
-		}
+        }
+        else
+        {
+            if (!target)
+            {
+                target = av[i];
+            }
+            else
+            {
+                printf("ft_ping: %s: Name or service not known\n", av[i]);
+                exit(2);
+            }
+        }
     }
 }
 
-void	help(void) {
+void help(void)
+{
 
-	printf("\nUsage\n");
-	printf("	ft_ping [options] <destination>\n\n");
-	printf("Options:\n");
-	printf("	<destination>		dns name or ip address\n");
-	printf("	-v			verbose output\n");
-	exit(0);
+    printf("\nUsage\n");
+    printf("	ft_ping [options] <destination>\n\n");
+    printf("Options:\n");
+    printf("	<destination>		dns name or ip address\n");
+    printf("	-v			verbose output\n");
+    exit(0);
 }
 
-int main(int argc, char **argv) {
-    if (argc < 2) {
+void build_request(t_icmp *request, int seq)
+{
+    bzero(request, sizeof(t_icmp));
+
+    request->hdr.type = ICMP_ECHO;
+    request->hdr.code = 0;
+    request->hdr.un.echo.id = getpid();
+    request->hdr.un.echo.sequence = seq;
+    request->hdr.checksum = 0;
+    request->hdr.checksum = checksum(request, sizeof(request));
+}
+
+int main(int argc, char **argv)
+{
+    if (argc < 2)
+    {
         printf("Usage: %s <hostname/IP>\n", argv[0]);
         return 1;
     }
 
-	struct option opt = {0};
-	check_options(&opt, argv);
+    struct option opt = {0};
+    check_options(&opt, argv);
 
-	if (opt.help)
-		help();
+    if (opt.help)
+        help();
     struct addrinfo hints, *res;
 
     memset(&hints, 0, sizeof(hints));
@@ -147,7 +186,8 @@ int main(int argc, char **argv) {
     hints.ai_protocol = IPPROTO_ICMP;
 
     int sockfd = socket(AF_INET, SOCK_RAW, IPPROTO_ICMP);
-    if (sockfd < 0) {
+    if (sockfd < 0)
+    {
         perror("Unable to create socket");
         return 1;
     }
@@ -156,12 +196,22 @@ int main(int argc, char **argv) {
     timeout.tv_sec = 2;
     timeout.tv_usec = 0;
 
-    if (setsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout)) < 0) {
+    /*if (setsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout)) < 0)
+    {
         perror("setsockopt");
         return 1;
+    }*/
+
+    int ttl_value = 64;
+    if (setsockopt(sockfd, SOL_IP, IP_TTL, &ttl_value, sizeof(ttl_value)) != 0)
+    {
+        fprintf(stderr, "Fatal error when setting the Raw Socket, Abort.\n");
+
+        exit(1);
     }
 
-    if (getaddrinfo(target, NULL, &hints, &res) != 0) {
+    if (getaddrinfo(target, NULL, &hints, &res) != 0)
+    {
         perror("getaddrinfo");
         return 1;
     }
@@ -169,66 +219,88 @@ int main(int argc, char **argv) {
     struct sockaddr_in *addr = (struct sockaddr_in *)res->ai_addr;
 
     int seq = 0;
-    char packet[PACKET_SIZE];
-    struct icmphdr *icmp = (struct icmphdr *)packet;
 
-    icmp->type = 8;  // ICMP Echo Request
-    icmp->code = 0;
-    icmp->id = htons(getpid());
-    icmp->checksum = 0;
-
-	gettimeofday(&total, NULL);
-	signal(SIGINT, sighandler);
+    req.packet = (char *)malloc(ICMP_BODY_SIZE);
+    gettimeofday(&total, NULL);
+    signal(SIGINT, sighandler);
     // Ping loop
 
-	printf("FT_PING %s (%s) 56(84) bytes of data.\n", target, inet_ntoa(addr->sin_addr));
-    while (1) {
-        icmp->seq = htons(++seq);
-		icmp->checksum = 0;
-        gettimeofday((struct timeval *)(packet + 8), NULL);
-        icmp->checksum = checksum(packet, PACKET_SIZE);
+    while (1)
+    {
 
-		struct timeval start;
-		struct timeval end;
+        build_request(&req, ++seq);
+        struct timeval start;
+        struct timeval end;
         // Send ICMP packet
-		gettimeofday(&start, NULL);
-        if (sendto(sockfd, packet, PACKET_SIZE, 0, (struct sockaddr *)addr, sizeof(struct sockaddr)) == -1) {
-            perror("sendto");
-            return 1;
+        gettimeofday(&start, NULL);
+
+        int code = sendto(sockfd, &req, 64, 0, (struct sockaddr *)addr, sizeof(struct sockaddr));
+        if (code >= 0)
+        {
+            transmitted++;
         }
-		transmitted++;
         // Receive ICMP packet
-        char recv_buf[PACKET_SIZE];
+        char recv_buf[PACKET_SIZE * 2];
         struct sockaddr_in sender_addr;
         socklen_t sender_addr_len = sizeof(sender_addr);
-        int recv_len = recvfrom(sockfd, recv_buf, PACKET_SIZE, 0, (struct sockaddr *)&sender_addr, &sender_addr_len);
+        int recv_len = recvfrom(sockfd, recv_buf, sizeof(recv_buf), 0, (struct sockaddr *)&sender_addr, &sender_addr_len);
 
-        if (recv_len < 0) {
+        if (recv_len < 0)
+        {
             printf("%d\n", errno);
+            printf("recv_len = %d\n", recv_len);
             perror("recvfrom");
             return 1;
         }
-		gettimeofday(&end, NULL);
-		received++;
-		struct ipheader *ip = (struct ipheader *)recv_buf;
-		unsigned char ttl = ip->ttl;
-        struct timeval *recv_time = (struct timeval *)(recv_buf + 8);
-		double process_time = (double)(end.tv_sec - start.tv_sec) * 1000.0 + (double)(end.tv_usec - start.tv_usec) / 1000.0;
-		if (min > process_time)
-			min = process_time;
-		if (max < process_time)
-			max = process_time;
-		avg = ((avg * (received - 1)) + process_time) / (received);
-		sum_of_squares = ((sum_of_squares * (received - 1)) + process_time * process_time) / received;
-		if (received > 1) {
-			mdev = sqrt(sum_of_squares - avg * avg);
-		}
+        gettimeofday(&end, NULL);
+        received++;
+        struct iphdr *ip = (struct iphdr *)recv_buf;
+        struct icmphdr *icmp = (struct icmphdr *)(recv_buf + (ip->ihl << 2));
 
-		printf("%d bytes from %s (%s): icmp_seq=%d ttl=%u time=%.2f ms\n",
-					recv_len, argv[1], inet_ntoa(sender_addr.sin_addr), ntohs(icmp->seq), 
-					ttl, process_time
-		);
-        sleep(1);  // Delay between pings
+        unsigned char ttl = ip->ttl;
+        struct timeval *recv_time = (struct timeval *)(recv_buf + 8);
+        long secs_diff = end.tv_sec - start.tv_sec;
+        long usecs_diff = end.tv_usec - start.tv_usec;
+
+        if (usecs_diff < 0)
+        {
+            // Adjust for the fact that usecs_diff is negative
+            --secs_diff;
+            usecs_diff += 1000000; // Add one second in microseconds
+        }
+
+        double process_time = (double)secs_diff * 1000.0 + (double)usecs_diff / 1000.0;
+
+        if (min > process_time)
+            min = process_time;
+        if (max < process_time)
+            max = process_time;
+        avg = ((avg * (received - 1)) + process_time) / (received);
+        sum_of_squares = ((sum_of_squares * (received - 1)) + process_time * process_time) / received;
+        if (received > 1)
+        {
+            mdev = sqrt(sum_of_squares - avg * avg);
+        }
+
+        unsigned short recv_checksum = icmp->checksum;
+        icmp->checksum = 0;
+        unsigned short calc_checksum = checksum(icmp, recv_len - (ip->ihl << 2));
+
+        if (recv_checksum != calc_checksum)
+        {
+            printf("Checksum mismatch %u %u\n", recv_checksum, calc_checksum);
+        }
+        else if ((icmp->type != 0 && icmp->type != 8)|| icmp->code != 0)
+        {
+            printf("type: %d, code: %d, %s\n", icmp->type, icmp->code, get_right_icmp_error(icmp->type, icmp->code));
+        }
+        else
+        {
+            printf("%d bytes from %s (%s): icmp_seq=%d ttl=%u time=%.2f ms\n",
+                   recv_len, argv[1], inet_ntoa(sender_addr.sin_addr), seq,
+                   ttl, process_time);
+        }
+        sleep(1); // Delay between pings
     }
 
     freeaddrinfo(res);

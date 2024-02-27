@@ -50,6 +50,7 @@ unsigned short checksum(void *b, int len)
     return result;
 }
 
+int sockfd = -1;
 char *target = NULL;
 unsigned long transmitted = 0;
 unsigned long received = 0;
@@ -88,6 +89,7 @@ void sighandler(int sig)
 
     if (req.packet)
         free(req.packet);
+    close(sockfd);
     exit(sig);
 }
 
@@ -105,6 +107,11 @@ void check_options(struct option *opt, char **av)
 
         if (av[i][0] == '-')
         {
+			if (strlen(av[i]) == 1)
+			{
+				printf("ft_ping: %s: Name or service not known\n", av[i]);
+				exit(1);
+			}
             for (int j = 1; av[i][j]; j++)
             {
 
@@ -185,7 +192,7 @@ int main(int argc, char **argv)
     hints.ai_socktype = SOCK_RAW;
     hints.ai_protocol = IPPROTO_ICMP;
 
-    int sockfd = socket(AF_INET, SOCK_RAW, IPPROTO_ICMP);
+    sockfd = socket(AF_INET, SOCK_RAW, IPPROTO_ICMP);
     if (sockfd < 0)
     {
         perror("Unable to create socket");

@@ -732,7 +732,6 @@ int main(int argc, char **argv)
 		}
 		if (icmp->type != ICMP_ECHOREPLY && !same_subnet)
 		{
-			printf("type = %d, code = %d\n", icmp->type, icmp->code);
 			printf("%ld bytes from %s: %s\n", recv_len - IP_HDR_SIZE, from_addr, icmp_error_to_string(icmp->type, icmp->code));
 			if (opt.v)
 			{

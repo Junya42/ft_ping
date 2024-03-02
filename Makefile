@@ -5,7 +5,7 @@ build:
 	docker build -t debian-dev:latest .
 
 run:
-	docker run -it debian-dev:latest
+	docker run -it debian-dev:latest bash
 
 clean:
 	rm ft_ping

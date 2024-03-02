@@ -563,7 +563,7 @@ int main(int argc, char **argv)
 	while (--opt.l >= 0)
 	{
 		char req[opt.s];
-		build_request(req, seq++, sizeof(req));
+		build_request(req, seq, sizeof(req));
 		struct timeval start;
 		struct timeval end;
 		// Send ICMP packet
@@ -646,12 +646,13 @@ int main(int argc, char **argv)
 				sighandler(0);
 			}
 		}
+		seq++;
 	}
 	while (1)
 	{
 		char req[opt.s];
 
-		build_request(req, seq++, sizeof(req));
+		build_request(req, seq, sizeof(req));
 
 		struct timeval start;
 		struct timeval end;
@@ -774,11 +775,18 @@ int main(int argc, char **argv)
 
 			if (!opt.n)
 			{
-				printf("%ld bytes from %s (%s): icmp_seq=%d ttl=%u time=%.3f ms\n", recv_len - IP_HDR_SIZE, argv[1], inet_ntoa(sender_addr.sin_addr), seq, ttl, process_time);
+				if (opt.s - ICMP_HDR_SIZE < 16)
+					printf("%ld bytes from %s (%s): icmp_seq=%d ttl=%u\n", recv_len - IP_HDR_SIZE, argv[1], inet_ntoa(sender_addr.sin_addr), seq, ttl);
+				else
+					printf("%ld bytes from %s (%s): icmp_seq=%d ttl=%u time=%.3f ms\n", recv_len - IP_HDR_SIZE, argv[1], inet_ntoa(sender_addr.sin_addr), seq, ttl, process_time);
+
 			}
 			else
 			{
-				printf("%ld bytes from %s: icmp_seq=%d ttl=%u time=%.3f ms\n", recv_len - IP_HDR_SIZE, inet_ntoa(sender_addr.sin_addr), seq, ttl, process_time);
+				if (opt.s - ICMP_HDR_SIZE < 16)
+					printf("%ld bytes from %s: icmp_seq=%d ttl=%u\n", recv_len - IP_HDR_SIZE, inet_ntoa(sender_addr.sin_addr), seq, ttl);
+				else
+					printf("%ld bytes from %s: icmp_seq=%d ttl=%u time=%.3f ms\n", recv_len - IP_HDR_SIZE, inet_ntoa(sender_addr.sin_addr), seq, ttl, process_time);
 			}
 		}
 
@@ -796,6 +804,7 @@ int main(int argc, char **argv)
 			usleep(opt.i * 1000000); // Delay between pings
 		else
 			usleep(1000000); // usleep for 1 second
+		seq++;
 	}
 
 	freeaddrinfo(res);

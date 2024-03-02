@@ -1,7 +1,13 @@
-bonus:
-	gcc -g3 srcs/ft_ping_bonus.c -o ft_ping_bonus -lm
+all:
+	gcc -g3 srcs/main.c -o ft_ping -lm
 
-ping:
-	gcc -g3 srcs/ft_ping.c srcs/error.c -o ft_ping -lm
+build:
+	docker build -t debian-dev:latest .
 
-.PHONY: bonus ping
+run:
+	docker run -it debian-dev:latest
+
+clean:
+	rm ft_ping
+
+.PHONY: all build run clean

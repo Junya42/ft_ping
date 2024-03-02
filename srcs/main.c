@@ -17,20 +17,89 @@
 #include <netinet/in.h>
 #include <netinet/ip_icmp.h>
 #include <netinet/ip.h>
+#include <stdbool.h>
+#include <ctype.h>
+#include <string.h>
+#include <net/if.h>
+#include <sys/ioctl.h>
+#include <libnl3/netlink/netlink-compat.h>
 
-char *get_right_icmp_error(int type, int code);
+char *icmp_error_to_string(int type, int code)
+{
+	switch (type)
+	{
+	case ICMP_DEST_UNREACH:
+		switch (code)
+		{
+		case ICMP_NET_UNREACH:
+			return "Destination Net Unreachable\n";
+		case ICMP_HOST_UNREACH:
+			return "Destination Host Unreachable\n";
+		case ICMP_PROT_UNREACH:
+			return "Destination Protocol Unreachable\n";
+		case ICMP_PORT_UNREACH:
+			return "Destination Port Unreachable\n";
+		case ICMP_FRAG_NEEDED:
+			return "Frag needed\n";
+		case ICMP_SR_FAILED:
+			return "Source Route Failed\n";
+		case ICMP_NET_UNKNOWN:
+			return "Destination Net Unknown\n";
+		case ICMP_HOST_UNKNOWN:
+			return "Destination Host Unknown\n";
+		case ICMP_HOST_ISOLATED:
+			return "Source Host Isolated\n";
+		case ICMP_NET_ANO:
+			return "Destination Net Prohibited\n";
+		case ICMP_HOST_ANO:
+			return "Destination Host Prohibited\n";
+		case ICMP_NET_UNR_TOS:
+			return "Destination Net Unreachable for Type of Service\n";
+		case ICMP_HOST_UNR_TOS:
+			return "Destination Host Unreachable for Type of Service\n";
+		case ICMP_PKT_FILTERED:
+			return "Packet filtered\n";
+		case ICMP_PREC_VIOLATION:
+			return "Precedence Violation\n";
+		case ICMP_PREC_CUTOFF:
+			return "Precedence Cutoff\n";
+		default:
+			return "Dest Unreachable";
+		}
+	case ICMP_SOURCE_QUENCH:
+		return "Source Quench\n";
+	case ICMP_REDIRECT:
+		switch (code)
+		{
+		case ICMP_REDIR_NET:
+			return "Redirect Network";
+		case ICMP_REDIR_HOST:
+			return "Redirect Host";
+		case ICMP_REDIR_NETTOS:
+			return "Redirect Type of Service and Network";
+		case ICMP_REDIR_HOSTTOS:
+			return "Redirect Type of Service and Host";
+		default:
+			return "Redirect Errors";
+		}
+	case ICMP_TIME_EXCEEDED:
+		switch (code)
+		{
+		case ICMP_EXC_TTL:
+			return "Time to live exceeded";
+		case ICMP_EXC_FRAGTIME:
+			return "Fragment Reass time exceeded";
+		default:
+			return "TTL Errors";
+		}
+	}
+	return "Unknown ICMP Error";
+}
 
 #define PACKET_SIZE 64
-#define ICMP_HDR_SIZE 8
+#define IP_HDR_SIZE sizeof(struct iphdr)
+#define ICMP_HDR_SIZE sizeof(struct icmphdr)
 #define ICMP_BODY_SIZE 56
-
-typedef struct s_icmp
-{
-	struct icmphdr hdr;
-	char *packet;
-} t_icmp;
-
-t_icmp req;
 
 // Function to calculate the checksum for ICMP header
 unsigned short checksum(void *b, int len)
@@ -63,6 +132,7 @@ double sum_of_squares = 0;
 double mdev = 0.0;
 int l_pipe = 0;
 struct timeval total;
+struct addrinfo *res;
 
 void sighandler(int sig)
 {
@@ -87,16 +157,18 @@ void sighandler(int sig)
 	double loss = 100.0 - (100.0 * (received) / transmitted);
 
 	printf("\n--- %s ping statistics ---\n", target);
-	printf("%lu packets transmitted, %lu received, %f%% packet loss, time %ldms\n",
-		   transmitted, received, loss,
-		   total_time);
-	if (l_pipe < 2)
-		printf("rtt min/avg/max/mdev = %.3f/%.3f/%.3f/%.3f ms\n", min, avg, max, mdev);
-	else
-		printf("rtt min/avg/max/mdev = %.3f/%.3f/%.3f/%.3f ms, pipe %d\n", min, avg, max, mdev, l_pipe);
+	printf("%lu packets transmitted, %lu packets received, %d%% packet loss\n",
+		   transmitted, received, (int)loss);
+
+	if (received > 0)
+	{
+		// if (l_pipe < 2)
+		printf("round-trip min/avg/max/stddev = %.3f/%.3f/%.3f/%.3f ms\n", min, avg, max, mdev);
+		// else
+		// printf("round-trip min/avg/max/stddev = %.3f/%.3f/%.3f/%.3f ms, pipe %d\n", min, avg, max, mdev, l_pipe);
+	}
+	freeaddrinfo(res);
 	close(sockfd);
-	if (req.packet)
-		free(req.packet);
 	exit(sig);
 }
 
@@ -106,10 +178,9 @@ struct option
 	double i; // ok
 	int l;	  // ok
 	int n;	  // ok
-	int p;	  // how ?
 	int r;	  // depends on OS
 	int s;	  // ok
-	int ttl;  // ok i guess ?
+	int ttl;  // ok ?
 	int T;
 	int v;	  //?
 	int w;	  // ok
@@ -146,6 +217,31 @@ void check_options(struct option *opt, char **av)
 					fprintf(stderr, "ft_ping: invalid argument: '%c'\n", av[i][j]);
 					exit(1);
 				}
+				if (strcmp(av[i], "--ttl") == 0)
+				{
+					check = 't';
+					break;
+				}
+				if (strcmp(av[i], "--help") == 0)
+				{
+					opt->help = 1;
+					break;
+				}
+				if (strcmp(av[i], "--version") == 0)
+				{
+					printf("ft_ping (42 ft_ping) 1.0\n");
+					printf("Copyright (C) 2024 Student Project, Inc.\n");
+					printf("No license required\n");
+					printf("This is free software: you are free to change and redistribute it.\n");
+					printf("There is NO WARRANTY, to the extent permitted by law.\n\n");
+					printf("Written by aremiki.\n");
+					exit(0);
+				}
+				if (strcmp(av[i], "--flood") == 0)
+				{
+					opt->f = 1;
+					break;
+				}
 				switch (av[i][j])
 				{
 				case 'f':
@@ -160,9 +256,6 @@ void check_options(struct option *opt, char **av)
 					break;
 				case 'n':
 					opt->n = 1;
-					break;
-				case 'p':
-					check = 'p';
 					break;
 				case 'r':
 					opt->r = 1;
@@ -179,6 +272,14 @@ void check_options(struct option *opt, char **av)
 				case 'v':
 					opt->v = 1;
 					break;
+				case 'V':
+					printf("ft_ping (42 ft_ping) 1.0\n");
+					printf("Copyright (C) 2024 Student Project, Inc.\n");
+					printf("No license required\n");
+					printf("This is free software: you are free to change and redistribute it.\n");
+					printf("There is NO WARRANTY, to the extent permitted by law.\n\n");
+					printf("Written by aremiki.\n");
+					exit(0);
 				case 'w':
 					check = 'w';
 					break;
@@ -241,9 +342,6 @@ void check_options(struct option *opt, char **av)
 					opt->l = value;
 					l_pipe = value;
 				}
-				break;
-			case 'p':
-				opt->p = value;
 				break;
 			case 's':
 				opt->s = value + 8;
@@ -313,28 +411,31 @@ void help(void)
 	printf("	-i <interval>		seconds between sending each packet\n");
 	printf("	-l <preload>		send <preload> number of packages while waiting replies\n");
 	printf("	-n			no dns name resolution\n");
-	printf("	-p <pattern>		fill packet with <pattern>\n");
 	printf("	-r			bypass routing\n");
 	printf("	-s <size>		use <size> data bytes\n");
-	printf("	-t <ttl>		set ttl to <ttl>\n");
+	printf("	-ttl <ttl>		set ttl to <ttl>\n");
 	printf("	-v			verbose output\n");
 	printf("	-w <deadline>		reply wait <deadline> in seconds\n");
 	printf("	-W <timeout>		time to wait for response\n");
+	printf("	-V			print program version\n");
 	printf("	-h			print help and exit\n");
 	printf("	-?			print help and exit\n");
 	exit(0);
 }
 
-void build_request(t_icmp *request, int seq)
-{
-	bzero(request, sizeof(t_icmp));
+struct option opt = {0};
 
-	request->hdr.type = ICMP_ECHO;
-	request->hdr.code = 0;
-	request->hdr.un.echo.id = getpid();
-	request->hdr.un.echo.sequence = seq;
-	request->hdr.checksum = 0;
-	request->hdr.checksum = checksum(request, sizeof(request));
+void build_request(char *req, int seq, int size)
+{
+
+
+	bzero(req, size);
+	struct icmphdr *request = (struct icmphdr *)req;
+
+	request->type = ICMP_ECHO;
+	request->un.echo.id = htons(getpid());
+	request->un.echo.sequence = seq;
+	request->checksum = checksum((unsigned short *)request, sizeof(req));
 }
 
 int main(int argc, char **argv)
@@ -345,13 +446,12 @@ int main(int argc, char **argv)
 		return 1;
 	}
 
-	struct option opt = {0};
 	check_options(&opt, argv);
 
 	if (opt.help)
 		help();
 
-	struct addrinfo hints, *res;
+	struct addrinfo hints;
 
 	memset(&hints, 0, sizeof(hints));
 	hints.ai_family = AF_INET;
@@ -394,23 +494,81 @@ int main(int argc, char **argv)
 
 	int seq = 0;
 
-	req.packet = (char *)malloc(opt.s);
 	gettimeofday(&total, NULL);
 	signal(SIGINT, sighandler);
 	// Ping loop
 
 	if (!opt.v)
-		printf("FT_PING %s (%s) %d(%d) bytes of data.\n", target, inet_ntoa(addr->sin_addr), opt.s - 8, opt.s + 20);
+		printf("FT_PING %s (%s) %d data bytes\n", target, inet_ntoa(addr->sin_addr), opt.s - 8);
 	else
-		printf("FT_PING %s (%s) %d(%d) bytes of data, id 0x0%x = %i.\n", target, inet_ntoa(addr->sin_addr), opt.s - 8, opt.s + 20, getpid(), getpid());
+	{
+
+		int pid = getpid();
+		int hexaCheck = pid < 16 ? 1 : 0;
+		printf("FT_PING %s (%s) %d data bytes, id 0x00%s%x = %i\n", target, inet_ntoa(addr->sin_addr), opt.s - 8, (hexaCheck ? "0" : ""), pid, pid);
+	}
+
+	char my_ip[INET_ADDRSTRLEN];
+	const char *interface = "eth0";
+
+	int fd;
+	struct ifreq ifr;
+
+	fd = socket(AF_INET, SOCK_DGRAM, 0);
+	if (fd < 0)
+	{
+		perror("socket");
+		close(sockfd);
+		return -1;
+	}
+
+	memset(&ifr, 0, sizeof(ifr));
+	strncpy(ifr.ifr_name, interface, IFNAMSIZ - 1);
+
+	if (ioctl(fd, SIOCGIFADDR, &ifr) < 0)
+	{
+		perror("ioctl");
+		close(fd);
+		close(sockfd);
+		return -1;
+	}
+
+	close(fd);
+
+	struct sockaddr_in *my_addr = (struct sockaddr_in *)&ifr.ifr_addr;
+	strcpy(my_ip, inet_ntoa(my_addr->sin_addr));
+
+	struct in_addr source = {inet_addr(my_ip)};
+	struct in_addr dest = {inet_addr(inet_ntoa(addr->sin_addr))};
+
+	struct in_addr subnet_mask = {inet_addr("255.255.255.0")};
+
+	uint32_t source_net = ntohl(source.s_addr) & ntohl(subnet_mask.s_addr);
+	uint32_t dest_net = ntohl(dest.s_addr) & ntohl(subnet_mask.s_addr);
+
+	int same_subnet = false;
+	if (source_net != dest_net && strcmp(inet_ntoa(addr->sin_addr), "127.0.0.1") != 0)
+	{
+		close(fd);
+		if (opt.r)
+		{
+			fprintf(stderr, "ft_ping: sending packet: Network is unreachable\n");
+			close(sockfd);
+			exit(1);
+		}
+	} else {
+		same_subnet = true;
+	}
+
 	while (--opt.l >= 0)
 	{
-		build_request(&req, ++seq);
+		char req[opt.s];
+		build_request(req, seq++, sizeof(req));
 		struct timeval start;
 		struct timeval end;
 		// Send ICMP packet
 		gettimeofday(&start, NULL);
-		int code = sendto(sockfd, &req, opt.s, 0, (struct sockaddr *)addr, sizeof(struct sockaddr));
+		int code = sendto(sockfd, req, opt.s, 0, (struct sockaddr *)addr, sizeof(struct sockaddr));
 
 		if (code >= 0)
 		{
@@ -430,7 +588,7 @@ int main(int argc, char **argv)
 		msg.msg_namelen = sender_addr_len;
 		msg.msg_iov = iov;
 		msg.msg_iovlen = 1;
-		int recv_len = recvfrom(sockfd, recv_buf, opt.s, 0, (struct sockaddr *)&sender_addr, &sender_addr_len);
+		int recv_len = recvfrom(sockfd, recv_buf, sizeof(recv_buf), 0, (struct sockaddr *)&sender_addr, &sender_addr_len);
 		// int recv_len = recvmsg(sockfd, &msg, 0);
 
 		if (recv_len >= 0)
@@ -467,13 +625,13 @@ int main(int argc, char **argv)
 
 		if (!opt.n)
 		{
-			printf("%d bytes from %s (%s): icmp_seq=%d ttl=%u time=%.2f ms\n",
+			printf("%d bytes from %s (%s): icmp_seq=%d ttl=%u time=%.3f ms\n",
 				   recv_len, argv[1], inet_ntoa(sender_addr.sin_addr), seq,
 				   ttl, process_time);
 		}
 		else
 		{
-			printf("%d bytes from %s: icmp_seq=%d ttl=%u time=%.2f ms\n",
+			printf("%d bytes from %s: icmp_seq=%d ttl=%u time=%.3f ms\n",
 				   recv_len, inet_ntoa(sender_addr.sin_addr), seq,
 				   ttl, process_time);
 		}
@@ -491,13 +649,15 @@ int main(int argc, char **argv)
 	}
 	while (1)
 	{
-		build_request(&req, ++seq);
+		char req[opt.s];
+
+		build_request(req, seq++, sizeof(req));
 
 		struct timeval start;
 		struct timeval end;
 		// Send ICMP packet
 		gettimeofday(&start, NULL);
-		int code = sendto(sockfd, &req, opt.s, 0, (struct sockaddr *)addr, sizeof(struct sockaddr));
+		ssize_t code = sendto(sockfd, req, sizeof(req), 0, (struct sockaddr *)addr, sizeof(struct sockaddr));
 
 		if (code >= 0)
 		{
@@ -509,25 +669,13 @@ int main(int argc, char **argv)
 			printf(".");
 		}
 		// Receive ICMP packet
-		char recv_buf[opt.s * 2];
-		struct iovec iov[1];
-		iov[0].iov_base = recv_buf;
-		iov[0].iov_len = sizeof(recv_buf);
+		char recv_buf[128];
+
 		struct sockaddr_in sender_addr;
 		socklen_t sender_addr_len = sizeof(sender_addr);
-		struct msghdr msg;
-		memset(&msg, 0, sizeof(msg));
-		msg.msg_name = &sender_addr;
-		msg.msg_namelen = sender_addr_len;
-		msg.msg_iov = iov;
-		msg.msg_iovlen = 1;
-		int recv_len = recvfrom(sockfd, recv_buf, opt.s, 0, (struct sockaddr *)&sender_addr, &sender_addr_len);
-		// int recv_len = recvmsg(sockfd, &msg, 0);
 
-		if (recv_len > -1)
-		{
-			received++;
-		}
+		long recv_len = recvfrom(sockfd, recv_buf, sizeof(recv_buf), 0, (struct sockaddr *)&sender_addr, &sender_addr_len);
+
 		if (opt.f)
 		{
 			fflush(stdout);
@@ -536,8 +684,10 @@ int main(int argc, char **argv)
 		gettimeofday(&end, NULL);
 		struct iphdr *ip = (struct iphdr *)recv_buf;
 		struct icmphdr *icmp = (struct icmphdr *)(recv_buf + (ip->ihl << 2));
+		char from_addr[INET_ADDRSTRLEN] = {};
 
-		unsigned char ttl = ip->ttl;
+		inet_ntop(AF_INET, &ip->saddr, from_addr, INET_ADDRSTRLEN);
+		uint8_t ttl = ip->ttl;
 		struct timeval *recv_time = (struct timeval *)(recv_buf + 8);
 		long secs_diff = end.tv_sec - start.tv_sec;
 		long usecs_diff = end.tv_usec - start.tv_usec;
@@ -554,43 +704,82 @@ int main(int argc, char **argv)
 			min = process_time;
 		if (max < process_time)
 			max = process_time;
-		avg = ((avg * (received - 1)) + process_time) / (received);
-		sum_of_squares = ((sum_of_squares * (received - 1)) + process_time * process_time) / received;
+
+		if (received)
+		{
+			avg = ((avg * (received - 1)) + process_time) / (received);
+			sum_of_squares = ((sum_of_squares * (received - 1)) + process_time * process_time) / received;
+		}
 		if (received > 1)
 		{
 			mdev = sqrt(sum_of_squares - avg * avg);
 		}
 
-		if (!opt.f)
+		if (opt.w)
+		{
+			struct timeval total_end;
+			gettimeofday(&total_end, NULL);
+
+			if ((unsigned long)(total_end.tv_sec - total.tv_sec) >= opt.w)
+			{
+				sighandler(0);
+			}
+		}
+
+		if (icmp->type == ICMP_ECHOREPLY || same_subnet)
+		{
+			received++;
+		}
+		if (icmp->type != ICMP_ECHOREPLY && !same_subnet)
+		{
+			printf("type = %d, code = %d\n", icmp->type, icmp->code);
+			printf("%ld bytes from %s: %s\n", recv_len - IP_HDR_SIZE, from_addr, icmp_error_to_string(icmp->type, icmp->code));
+			if (opt.v)
+			{
+
+				uint8_t *cast_buf = (uint8_t *)icmp;
+
+				struct iphdr *ipskip = (void *)((uint8_t *)((struct icmphdr *)recv_buf) + ICMP_HDR_SIZE);
+				struct icmphdr *icmpskip;
+
+				cast_buf += ICMP_HDR_SIZE + IP_HDR_SIZE;
+				icmpskip = (struct icmphdr *)cast_buf;
+
+				uint8_t *bytes = (uint8_t *)ipskip;
+				char str[INET_ADDRSTRLEN];
+
+				printf("IP Hdr Dump:\n");
+				for (size_t i = 0; i < sizeof(struct iphdr); i += 2)
+				{
+					printf(" %02x%02x", *bytes, *(bytes + 1));
+					bytes += 2;
+				}
+				printf("\nVr HL TOS  Len   ID Flg  off TTL Pro  cks      Src	"
+					   "Dst	Data\n");
+				printf(" %x  %x  %02x %04x %04x   %x %04x  %02x  %02x %04x ",
+					   ipskip->version, ipskip->ihl, ipskip->tos, ntohs(ipskip->tot_len),
+					   ntohs(ipskip->id), ntohs(ipskip->frag_off) >> 13,
+					   ntohs(ipskip->frag_off) & 0x1FFF, ipskip->ttl, ipskip->protocol,
+					   ntohs(ipskip->check));
+				inet_ntop(AF_INET, &ipskip->saddr, str, sizeof(str));
+				printf("%s  ", str);
+				inet_ntop(AF_INET, &ipskip->daddr, str, sizeof(str));
+				printf("%s\n", str);
+				printf("ICMP: type %x, code %x, size %zu, id %#04x, seq 0x%04x\n",
+					   icmpskip->type, icmpskip->code, opt.s + sizeof(*icmpskip),
+					   icmpskip->un.echo.id, icmpskip->un.echo.sequence);
+			}
+		}
+		else if (!opt.f)
 		{
 
 			if (!opt.n)
 			{
-				printf("%d bytes from %s (%s): icmp_seq=%d ", recv_len, argv[1], inet_ntoa(sender_addr.sin_addr), seq);
-
-				if (strcmp(inet_ntoa(sender_addr.sin_addr), inet_ntoa(addr->sin_addr)) == 0)
-				{
-					printf("ttl=%u time=%.2f ms\n", ttl, process_time);
-				}
-				else
-				{
-					printf("Time to live exceeded\n");
-				}
+				printf("%ld bytes from %s (%s): icmp_seq=%d ttl=%u time=%.3f ms\n", recv_len - IP_HDR_SIZE, argv[1], inet_ntoa(sender_addr.sin_addr), seq, ttl, process_time);
 			}
 			else
 			{
-				printf("%d bytes from %s: icmp_seq=%d ", recv_len, inet_ntoa(sender_addr.sin_addr), seq);
-
-				if (strcmp(inet_ntoa(sender_addr.sin_addr), inet_ntoa(addr->sin_addr)) == 0)
-				{
-					printf("ttl=%u time=%.2f ms\n", ttl, process_time);
-					printf("%s\n", inet_ntoa(sender_addr.sin_addr));
-					printf("%s\n", inet_ntoa(addr->sin_addr));
-				}
-				else
-				{
-					printf("Time to live exceeded\n");
-				}
+				printf("%ld bytes from %s: icmp_seq=%d ttl=%u time=%.3f ms\n", recv_len - IP_HDR_SIZE, inet_ntoa(sender_addr.sin_addr), seq, ttl, process_time);
 			}
 		}
 
@@ -604,7 +793,10 @@ int main(int argc, char **argv)
 				sighandler(0);
 			}
 		}
-		usleep(opt.i * 1000000); // Delay between pings
+		if (icmp->type == ICMP_ECHOREPLY)
+			usleep(opt.i * 1000000); // Delay between pings
+		else
+			usleep(1000000); // usleep for 1 second
 	}
 
 	freeaddrinfo(res);

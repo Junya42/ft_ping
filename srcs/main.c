@@ -682,7 +682,7 @@ int main(int argc, char **argv)
 		uint8_t icmp_type = icmp->type;
 		uint8_t icmp_code = icmp->code;
 
-		printf("%d %d", icmp_type, icmp_code);
+		printf("ICMP CODES: %d %d\n", icmp_type, icmp_code);
 		char from_addr[INET_ADDRSTRLEN] = {};
 
 

@@ -644,11 +644,8 @@ int main(int argc, char **argv)
 		struct timeval end;
 		// Send ICMP packet
 		gettimeofday(&start, NULL);
-		printf("HERE BEFORE SEND\n");
 
 		ssize_t code = sendto(sockfd, req, sizeof(req), 0, (struct sockaddr *)addr, sizeof(struct sockaddr));
-
-		printf("HERE AFTER SEND\n");
 
 		if (code >= 0)
 		{
@@ -665,10 +662,7 @@ int main(int argc, char **argv)
 		struct sockaddr_in sender_addr;
 		socklen_t sender_addr_len = sizeof(sender_addr);
 
-		printf("before RECV\n");
 		long recv_len = recvfrom(sockfd, recv_buf, sizeof(recv_buf), 0, (struct sockaddr *)&sender_addr, &sender_addr_len);
-
-		printf("after RECV\n");
 
 		if (opt.f)
 		{
@@ -688,8 +682,6 @@ int main(int argc, char **argv)
 
 		uint8_t icmp_type = icmp_hdr->type;
 		uint8_t icmp_code = icmp_hdr->code;
-
-		printf("ICMP CODES: %d %d\n", icmp_type, icmp_code);
 		
 		uint8_t ttl = ip->ttl;
 		struct timeval *recv_time = (struct timeval *)(recv_buf + 8);
@@ -773,7 +765,7 @@ int main(int argc, char **argv)
 				inet_ntop(AF_INET, &ipskip->daddr, str, sizeof(str));
 				printf("%s\n", str);
 				printf("ICMP: type %x, code %x, size %zu, id %#04x, seq 0x%04x\n",
-					   icmpskip->type, icmpskip->code, opt.s + sizeof(*icmpskip),
+					   icmp_type, icmp_code, opt.s + sizeof(*icmpskip),
 					   icmpskip->un.echo.id, icmpskip->un.echo.sequence);
 			}
 		}

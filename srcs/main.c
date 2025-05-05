@@ -22,7 +22,7 @@
 #include <string.h>
 #include <net/if.h>
 #include <sys/ioctl.h>
-#include <libnl3/netlink/netlink-compat.h>
+//#include <libnl3/netlink/netlink-compat.h>
 
 char *icmp_error_to_string(int type, int code)
 {
@@ -234,7 +234,7 @@ void check_options(struct option *opt, char **av)
 					printf("No license required\n");
 					printf("This is free software: you are free to change and redistribute it.\n");
 					printf("There is NO WARRANTY, to the extent permitted by law.\n\n");
-					printf("Written by aremiki.\n");
+					printf("Written by anremiki.\n");
 					exit(0);
 				}
 				if (strcmp(av[i], "--flood") == 0)
@@ -278,7 +278,7 @@ void check_options(struct option *opt, char **av)
 					printf("No license required\n");
 					printf("This is free software: you are free to change and redistribute it.\n");
 					printf("There is NO WARRANTY, to the extent permitted by law.\n\n");
-					printf("Written by aremiki.\n");
+					printf("Written by anremiki.\n");
 					exit(0);
 				case 'w':
 					check = 'w';
@@ -384,20 +384,6 @@ void check_options(struct option *opt, char **av)
 	{
 		opt->i = 0;
 	}
-	/*printf("opt->f: %d\n", opt->f);
-	printf("opt->i: %f\n", opt->i);
-	printf("opt->l: %d\n", opt->l);
-	printf("opt->n: %d\n", opt->n);
-	printf("opt->p: %d\n", opt->p);
-	printf("opt->r: %d\n", opt->r);
-	printf("opt->s: %d\n", opt->s);
-	printf("opt->ttl: %d\n", opt->ttl);
-	printf("opt->T: %d\n", opt->T);
-	printf("opt->v: %d\n", opt->v);
-	printf("opt->w: %d\n", opt->w);
-	printf("opt->W: %f\n", opt->W);
-	printf("opt->help: %d\n", opt->help);
-	printf("sudo = %d\n", sudo);*/
 }
 
 void help(void)
@@ -658,7 +644,11 @@ int main(int argc, char **argv)
 		struct timeval end;
 		// Send ICMP packet
 		gettimeofday(&start, NULL);
+		printf("HERE BEFORE SEND\n");
+
 		ssize_t code = sendto(sockfd, req, sizeof(req), 0, (struct sockaddr *)addr, sizeof(struct sockaddr));
+
+		printf("HERE AFTER SEND\n");
 
 		if (code >= 0)
 		{

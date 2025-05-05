@@ -679,7 +679,7 @@ int main(int argc, char **argv)
 		struct iphdr *ip = (struct iphdr *)recv_buf;
 		struct icmphdr *icmp = (struct icmphdr *)(recv_buf + (ip->ihl << 2));
 
-		struct icmphdr *icmp_hdr = ((uint8_t *)ip + sizeof(struct iphdr));
+		struct icmphdr *icmp_hdr = (void *)((uint8_t *)ip + sizeof(struct iphdr));
 
 		char from_addr[INET_ADDRSTRLEN] = {};
 

@@ -730,15 +730,16 @@ int main(int argc, char **argv)
 			}
 		}
 
+		if (recv_len < 0) {
+			icmp_type = ICMP_DEST_UNREACH;
+		}
 		if (icmp_type == ICMP_ECHOREPLY || same_subnet)
 		{
 			received++;
 		}
-		icmp_type = 3;
 		if (icmp_type != ICMP_ECHOREPLY && !same_subnet)
 		{
-			printf("RECV %ld %ld\n ", recv_len, IP_HDR_SIZE);
-			long long int recvbytes = (recv_len - IP_HDR_SIZE) > 0 ? (recv_len - IP_HDR_SIZE) : 0;
+			long long int recvbytes = (recv_len) > 0 ? (recv_len - IP_HDR_SIZE) : 0;
 			printf("%ld bytes from %s: %s\n", recvbytes, from_addr, icmp_error_to_string(icmp_type, icmp_code));
 			if (opt.v)
 			{

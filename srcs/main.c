@@ -665,7 +665,10 @@ int main(int argc, char **argv)
 		struct sockaddr_in sender_addr;
 		socklen_t sender_addr_len = sizeof(sender_addr);
 
+		printf("before RECV\n");
 		long recv_len = recvfrom(sockfd, recv_buf, sizeof(recv_buf), 0, (struct sockaddr *)&sender_addr, &sender_addr_len);
+
+		printf("after RECV\n");
 
 		if (opt.f)
 		{

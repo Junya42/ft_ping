@@ -679,14 +679,16 @@ int main(int argc, char **argv)
 		struct iphdr *ip = (struct iphdr *)recv_buf;
 		struct icmphdr *icmp = (struct icmphdr *)(recv_buf + (ip->ihl << 2));
 
-		uint8_t icmp_type = icmp->type;
-		uint8_t icmp_code = icmp->code;
-
-		printf("ICMP CODES: %d %d\n", icmp_type, icmp_code);
 		char from_addr[INET_ADDRSTRLEN] = {};
 
 
 		inet_ntop(AF_INET, &ip->saddr, from_addr, INET_ADDRSTRLEN);
+
+		uint8_t icmp_type = icmp->type;
+		uint8_t icmp_code = icmp->code;
+
+		printf("ICMP CODES: %d %d\n", icmp_type, icmp_code);
+		
 		uint8_t ttl = ip->ttl;
 		struct timeval *recv_time = (struct timeval *)(recv_buf + 8);
 		long secs_diff = end.tv_sec - start.tv_sec;
